@@ -1,0 +1,120 @@
+import React, { useState, useEffect, useRef } from 'react';
+import io from 'socket.io-client';
+import axios from 'axios';
+
+const API_URL = 'http://localhost:5000';  // Replace with your Flask backend URL
+
+function App() {
+  const [isRecording, setIsRecording] = useState(false);
+  const [transcription, setTranscription] = useState('');
+  const [question, setQuestion] = useState('');
+  const [response, setResponse] = useState('');
+  const socketRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+
+  useEffect(() => {
+    return () => {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
+    };
+  }, []);
+
+  const startMeeting = async () => {
+    setIsRecording(true);
+    socketRef.current = io(API_URL);
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorderRef.current = new MediaRecorder(stream);
+
+      mediaRecorderRef.current.ondataavailable = (event) => {
+        audioChunksRef.current.push(event.data);
+      };
+
+      mediaRecorderRef.current.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+        const formData = new FormData();
+        formData.append('audio', audioBlob, 'recording.wav');
+
+        try {
+          const response = await axios.post(`${API_URL}/upload_audio`, formData);
+          socketRef.current.emit('audio_data', { audio_url: response.data.audio_url });
+        } catch (error) {
+          console.error('Error uploading audio:', error);
+          alert('An error occurred while uploading audio. Please try again.');
+        }
+
+        audioChunksRef.current = [];
+      };
+
+      mediaRecorderRef.current.start(5000);
+
+      socketRef.current.on('transcription_update', (newTranscription) => {
+        setTranscription(prev => prev + newTranscription + '\n');
+      });
+
+    } catch (error) {
+      console.error('Error accessing microphone:', error);
+      alert('Unable to access microphone. Please check your settings and try again.');
+      setIsRecording(false);
+    }
+  };
+
+  const endMeeting = async () => {
+    setIsRecording(false);
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+    }
+
+    try {
+      await axios.post(`${API_URL}/end_meeting`);
+    } catch (error) {
+      console.error('Error ending meeting:', error);
+      alert('An error occurred while ending the meeting. Please try again.');
+    }
+  };
+
+  const chatWithBot = async () => {
+    if (!question.trim()) return;
+
+    try {
+      const response = await axios.post(`${API_URL}/chat`, { question });
+      setResponse(`Q: ${question}\nA: ${response.data.reply}`);
+      setQuestion('');
+    } catch (error) {
+      console.error('Error chatting with bot:', error);
+      setResponse('An error occurred while processing your question. Please try again.');
+    }
+  };
+
+  return (
+    <div className="App">
+      <h1>Zoom-like App with Chatbot</h1>
+      <button onClick={startMeeting} disabled={isRecording}>Start Meeting</button>
+      <button onClick={endMeeting} disabled={!isRecording}>End Meeting</button>
+      <div>
+        <h2>Live Transcription</h2>
+        <pre>{transcription}</pre>
+      </div>
+      <div>
+        <h2>Chat with Bot</h2>
+        <input
+          type="text"
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          onKeyPress={(e) => e.key === 'Enter' && chatWithBot()}
+          placeholder="Ask a question..."
+        />
+        <button onClick={chatWithBot}>Chat</button>
+        <p>{response}</p>
+      </div>
+    </div>
+  );
+}
+
+export default App;

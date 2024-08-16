@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Zoom-like App with Chatbot</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        button {
+            margin: 10px 0;
+            padding: 10px;
+            font-size: 16px;
+        }
+        #transcription, #response {
+            border: 1px solid #ccc;
+            padding: 10px;
+            margin-top: 10px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        #question {
+            width: 70%;
+            padding: 10px;
+            font-size: 16px;
+        }
+    </style>
+    <script>
+        let mediaRecorder;
+        let socket;
+        let audioChunks = [];
+        let isRecording = false;
+
+        function startMeeting() {
+            if (isRecording) return;
+            isRecording = true;
+            document.getElementById('startButton').disabled = true;
+            document.getElementById('endButton').disabled = false;
+
+            socket = io();
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(stream => {
+                    mediaRecorder = new MediaRecorder(stream);
+                    mediaRecorder.ondataavailable = event => {
+                        audioChunks.push(event.data);
+                    };
+                    mediaRecorder.onstop = () => {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+                        const formData = new FormData();
+                        formData.append('audio', audioBlob, 'recording.wav');
+                        fetch('/upload_audio', { method: 'POST', body: formData })
+                            .then(response => {
+                                if (!response.ok) {
+                                    throw new Error('Network response was not ok');
+                                }
+                                return response.json();
+                            })
+                            .then(data => {
+                                socket.emit('audio_data', { audio_url: data.audio_url });
+                            })
+                            .catch(error => {
+                                console.error('Error:', error);
+                                alert('An error occurred while uploading audio. Please try again.');
+                            });
+                        audioChunks = [];
+                    };
+                    mediaRecorder.start(5000);
+                })
+                .catch(error => {
+                    console.error('Error accessing microphone:', error);
+                    alert('Unable to access microphone. Please check your settings and try again.');
+                });
+
+            socket.on('transcription_update', (transcription) => {
+                document.getElementById('transcription').innerText += transcription + '\n';
+            });
+
+            socket.on('connect_error', (error) => {
+                console.error('Connection Error:', error);
+                alert('Failed to connect to the server. Please check your internet connection and try again.');
+            });
+        }
+
+        function endMeeting() {
+            if (!isRecording) return;
+            isRecording = false;
+            document.getElementById('startButton').disabled = false;
+            document.getElementById('endButton').disabled = true;
+
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
+            fetch('/end_meeting', { method: 'POST' })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => console.log(data.message))
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('An error occurred while ending the meeting. Please try again.');
+                });
+        }
+
+        async function chatWithBot() {
+            const question = document.getElementById('question').value;
+            if (!question.trim()) return;
+
+            document.getElementById('chatButton').disabled = true;
+            try {
+                const response = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ question })
+                });
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+                const data = await response.json();
+                document.getElementById('response').innerText = `Q: ${question}\nA: ${data.reply}`;
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('response').innerText = "An error occurred while processing your question. Please try again.";
+            } finally {
+                document.getElementById('chatButton').disabled = false;
+                document.getElementById('question').value = '';
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', (event) => {
+            document.getElementById('question').addEventListener('keypress', function (e) {
+                if (e.key === 'Enter') {
+                    chatWithBot();
+                }
+            });
+        });
+    </script>
+</head>
+<body>
+    <h1>Zoom-like App with Chatbot</h1>
+    <button id="startButton" onclick="startMeeting()">Start Meeting</button>
+    <button id="endButton" onclick="endMeeting()" disabled>End Meeting</button>
+    <div>
+        <h2>Live Transcription</h2>
+        <pre id="transcription"></pre>
+    </div>
+    <div>
+        <h2>Chat with Bot</h2>
+        <input type="text" id="question" placeholder="Ask a question...">
+        <button id="chatButton" onclick="chatWithBot()">Chat</button>
+        <p id="response"></p>
+    </div>
+</body>
+</html>
