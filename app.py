@@ -19,10 +19,10 @@ load_dotenv()
 
 AWS_ACCESS_KEY_ID = os.getenv("AWS_ACCESS_KEY_ID")
 AWS_SECRET_ACCESS_KEY = os.getenv("AWS_SECRET_ACCESS_KEY")
-AWS_S3_BUCKET_NAME = "audiobucket123456"
-OPENAI_API_KEY = "sk-i0ujYh3oHfs9c1JsSDKQEruEUR_rwXRSYc7UvNJ4liT3BlbkFJwF5NvWsVKbz0KzoVw7UYCSOYCITxiPiigT2VB6R0sA"
-LANGCHAIN_API_KEY="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"
-LANGCHAIN_PERSONAL_API_KEY="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"
+AWS_S3_BUCKET_NAME = ""
+OPENAI_API_KEY = ""
+LANGCHAIN_API_KEY=""
+LANGCHAIN_PERSONAL_API_KEY=""
 LANGCHAIN_TRACING_V2="true"
 
 s3 = boto3.client('s3',
@@ -76,7 +76,7 @@ def handle_audio_data(data):
     global transcript_text, vector_store
 
     headers = {
-        'authorization': "070c2b457b1c4d26bd31e64323e0546c",
+        'authorization': "",
         'content-type': 'application/json'
     }
 
